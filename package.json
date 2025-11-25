@@ -1,0 +1,14 @@
+{
+    "name": "monitor",
+    "version": "1.0.0",
+    "description": "AAVE V3 USDC Lending Pool Monitor",
+    "main": "aave.js",
+    "scripts": {
+        "start": "node aave.js"
+    },
+    "dependencies": {
+        "dotenv": "^16.0.3",
+        "ethers": "^6.7.1",
+        "node-telegram-bot-api": "^0.66.0"
+    }
+}
