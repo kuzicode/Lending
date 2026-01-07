@@ -1,10 +1,11 @@
 # Lending Monitor Suite
 
-两套脚本，统一 README：
-- `aave.js`：监控 Ethereum 上的 AAVE V3 USDC 资金池
-- `morpho.js`：监控 Base 链上 Morpho Spark USDC Vault
+监控 DeFi 借贷池利用率，当利用率超阈值时推送 Telegram 告警。
 
-两者都会每 10 分钟刷新一次数据，并在利用率超过阈值时给出控制台与 Telegram 告警。
+**监控池子（共 3 个）：**
+- **AAVE V3 USDC** (Ethereum) - `aave.js`
+- **Gauntlet USDC Prime** (Base/Morpho) - `morpho.js`
+- **Steakhouse Prime USDC** (Base/Morpho) - `morpho.js`
 
 ## 快速开始
 
@@ -12,73 +13,65 @@
    ```bash
    npm install
    ```
+
 2. **配置 `.env`**
    ```bash
-   # 通用
-   TELEGRAM_BOT_TOKEN="xxx"   # 可选
-   TELEGRAM_CHAT_ID="xxx"     # 可选
+   # Telegram (可选)
+   TELEGRAM_BOT_TOKEN="xxx"
+   TELEGRAM_CHAT_ID="xxx"
 
-   # AAVE
+   # AAVE (Ethereum)
    RPC_URL="https://rpc.ankr.com/eth"
-
-   # Morpho
-   BASE_RPC_URL="https://mainnet.base.org"
    ```
-   如需 Telegram 机器人，可参照 [TELEGRAM_SETUP.md](TELEGRAM_SETUP.md)。
+
 3. **运行脚本**
    ```bash
-   # AAVE
-   node aave.js
-
-   # Morpho
-   node morpho.js
+   node aave.js    # AAVE V3 USDC
+   node morpho.js  # Morpho Vaults (2个)
    ```
-4. **停止**
-   `Ctrl+C`
+
+4. **停止** `Ctrl+C`
 
 ## 监控内容
 
-| 脚本 | 数据源 | 关键指标 | WARNING | CRITICAL |
+| 池子 | 链 | 地址 | WARNING | CRITICAL |
 | --- | --- | --- | --- | --- |
-| `aave.js` | AAVE V3 Pool 合约 `0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2` + USDC/ERC20 代币 | 总流动性、可用流动性、总债务、Utilization | > 90% | > 95% |
-| `morpho.js` | Morpho GraphQL API `https://api.morpho.org/graphql` + Vault `0x7BfA7C4f149E7415b73bdeDfe609237e29CBF34A` | Total Assets、Available Liquidity、Deployed Assets、Utilization | > 90% | > 95% |
+| AAVE V3 USDC | Ethereum | `0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2` | > 90% | > 95% |
+| Gauntlet USDC Prime | Base | `0xeE8F4eC5672F09119b96Ab6fB59C27E1b7e44b61` | > 90% | > 95% |
+| Steakhouse Prime USDC | Base | `0xBEEFE94c8aD530842bfE7d8B397938fFc1cb83b2` | > 90% | > 95% |
 
-## 计算逻辑摘要
+**关键指标：** Total Liquidity、Available Liquidity、Utilization Rate、Supply APY
 
-```javascript
-// AAVE
-totalLiquidity   = aToken.totalSupply()
-totalDebt        = variableDebt.totalSupply() + stableDebt.totalSupply()
-available        = usdc.balanceOf(aToken)
-utilization      = totalDebt / totalLiquidity
+## 定时任务
 
-// Morpho
-totalAssets      = vault.totalAssets()
-available        = Σ min(marketSupply - marketBorrow, vaultSupplyInMarket)
-deployed         = totalAssets - available
-utilization      = deployed / totalAssets
-```
-
-两个脚本都会立即拉取一次最新状态，然后按 10 分钟间隔刷新。如果命中阈值，控制台输出 `[WARNING]` 或 `[CRITICAL]`，并推送 Telegram（如配置）。
+- **每 10 分钟**：刷新数据，超阈值时推送告警
+- **每天 9:00（北京时间）**：推送日报（无论是否超阈值）
 
 ## 示例输出
 
 ```
 --- AAVE V3 USDC Monitor ---
-Total Liquidity:   5,058,236,783.803 USDC
-Available:           805,019,769.336 USDC
-Utilization:        84.09%
-Status: Normal (Utilization < 90%)
+Total Liquidity:   4,810,000,000 USDC
+Available:           882,140,000 USDC
+Utilization Rate:  81.65%
+Supply APY:        3.99%
+Status: Normal
 
---- Morpho Vault Monitor (Base) ---
-Vault: Spark USDC Vault
-Total Assets:      308,738,080.524 USDC
-Available:         102,387,794.389 USDC
-Utilization:       66.84%
-Status: Normal (Utilization < 90%)
+--- Morpho: Gauntlet USDC Prime (Base) ---
+Total Deposits:    150,000,000 USDC
+Available:          45,000,000 USDC
+Utilization Rate:  70.00%
+Supply APY:        5.20%
+Status: Normal
+
+--- Morpho: Steakhouse Prime USDC (Base) ---
+Total Deposits:    200,000,000 USDC
+Available:          60,000,000 USDC
+Utilization Rate:  70.00%
+Supply APY:        4.80%
+Status: Normal
 ```
 
-## 后续可优化
-- 数据持久化与可视化
-- 多资产/多协议扩展
-- 告警渠道（Discord / 邮件）与重试机制
+## Telegram 设置
+
+详见 [TELEGRAM_SETUP.md](TELEGRAM_SETUP.md)

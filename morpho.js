@@ -4,9 +4,20 @@ const TelegramBot = require('node-telegram-bot-api');
 // Configuration
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-const MORPHO_VAULT_ADDRESS = '0x7BfA7C4f149E7415b73bdeDfe609237e29CBF34A';
 const MORPHO_API_URL = 'https://api.morpho.org/graphql';
-const DAILY_REPORT_HOUR = 9; // 每天上午9点推送日报
+const DAILY_REPORT_HOUR = 9;
+
+// Morpho Vaults on Base chain
+const VAULTS = [
+    {
+        address: '0xeE8F4eC5672F09119b96Ab6fB59C27E1b7e44b61',
+        name: 'Gauntlet USDC Prime'
+    },
+    {
+        address: '0xBEEFE94c8aD530842bfE7d8B397938fFc1cb83b2',
+        name: 'Steakhouse Prime USDC'
+    }
+];
 
 // Initialize Telegram Bot
 let bot = null;
@@ -28,11 +39,11 @@ async function sendTelegramMessage(message) {
     }
 }
 
-// Fetch vault data from Morpho API
-async function fetchVaultData() {
+// Fetch single vault data from Morpho API
+async function fetchVaultData(vaultAddress) {
     const query = `
         query GetVault {
-            vaultByAddress(chainId: 8453, address: "${MORPHO_VAULT_ADDRESS.toLowerCase()}") {
+            vaultByAddress(chainId: 8453, address: "${vaultAddress.toLowerCase()}") {
                 address
                 name
                 state {
@@ -74,9 +85,6 @@ async function fetchVaultData() {
 
     const vaultName = vault.name;
     const totalAssets = parseFloat(vault.state.totalAssets) / 1e6;
-    
-    // Get APY (netApy includes rewards, apy is base rate)
-    // API returns as decimal (e.g., 0.0645 = 6.45%)
     const supplyAPY = vault.state.netApy ? parseFloat(vault.state.netApy) * 100 : 
                       vault.state.apy ? parseFloat(vault.state.apy) * 100 : 0;
 
@@ -99,71 +107,98 @@ async function fetchVaultData() {
     return { vaultName, totalAssets, availableLiquidity, deployedAssets, utilizationRatePercent, supplyAPY };
 }
 
+// Fetch all vaults data
+async function fetchAllVaultsData() {
+    const results = [];
+    for (const vault of VAULTS) {
+        try {
+            const data = await fetchVaultData(vault.address);
+            if (data) {
+                results.push(data);
+            } else {
+                console.error(`Failed to fetch data for ${vault.name}`);
+            }
+        } catch (error) {
+            console.error(`Error fetching ${vault.name}:`, error.message);
+        }
+    }
+    return results;
+}
+
 // Main monitoring function
 async function main(isDailyReport = false) {
-    console.log(`Fetching Morpho Vault Data on Base...`);
+    console.log(`Fetching Morpho Vaults Data on Base...`);
 
     try {
-        const data = await fetchVaultData();
-        if (!data) {
-            console.error('Failed to fetch vault data from Morpho API');
+        const vaultsData = await fetchAllVaultsData();
+        if (vaultsData.length === 0) {
+            console.error('Failed to fetch any vault data from Morpho API');
             return;
         }
 
-        const { vaultName, totalAssets, availableLiquidity, deployedAssets, utilizationRatePercent, supplyAPY } = data;
         const timestamp = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
-        console.log(`\n--- Morpho Vault Monitor (Base) ---`);
-        console.log(`Vault Name:                     ${vaultName}`);
-        console.log(`Total Deposits (Total Assets):  ${totalAssets.toLocaleString()} USDC`);
-        console.log(`Liquidity (Available):          ${availableLiquidity.toLocaleString()} USDC`);
-        console.log(`Deployed/Borrowed Assets:       ${deployedAssets.toLocaleString()} USDC`);
-        console.log(`Utilization Rate:               ${utilizationRatePercent.toFixed(2)}%`);
-        console.log(`Supply APY:                     ${supplyAPY.toFixed(2)}%`);
+        // Console output for each vault
+        for (const data of vaultsData) {
+            const { vaultName, totalAssets, availableLiquidity, deployedAssets, utilizationRatePercent, supplyAPY } = data;
+            console.log(`\n--- Morpho: ${vaultName} (Base) ---`);
+            console.log(`Total Deposits:    ${totalAssets.toLocaleString()} USDC`);
+            console.log(`Available:         ${availableLiquidity.toLocaleString()} USDC`);
+            console.log(`Deployed:          ${deployedAssets.toLocaleString()} USDC`);
+            console.log(`Utilization Rate:  ${utilizationRatePercent.toFixed(2)}%`);
+            console.log(`Supply APY:        ${supplyAPY.toFixed(2)}%`);
+        }
 
-        // Daily report at 9am
+        // Daily report - send combined message for all vaults
         if (isDailyReport) {
-            const status = utilizationRatePercent > 95 ? '🚨 CRITICAL' :
-                          utilizationRatePercent > 90 ? '⚠️ WARNING' : '✅ Normal';
-            const message = `📋 *MORPHO Vault 日报*\n\n` +
-                `🏦 Vault: *${vaultName}*\n` +
-                `⏰ ${timestamp}\n` +
-                `📊 Utilization: *${utilizationRatePercent.toFixed(2)}%*\n` +
-                `💹 Supply APY: *${supplyAPY.toFixed(2)}%*\n` +
-                `💰 Total Deposits: ${totalAssets.toLocaleString()} USDC\n` +
-                `✅ Available: ${availableLiquidity.toLocaleString()} USDC\n` +
-                `📈 Deployed: ${deployedAssets.toLocaleString()} USDC\n\n` +
-                `Status: ${status}`;
+            let message = `📋 *MORPHO Vaults 日报*\n⏰ ${timestamp}\n`;
+            
+            for (const data of vaultsData) {
+                const { vaultName, totalAssets, availableLiquidity, utilizationRatePercent, supplyAPY } = data;
+                const status = utilizationRatePercent > 95 ? '🚨' :
+                              utilizationRatePercent > 90 ? '⚠️' : '✅';
+                message += `\n━━━━━━━━━━━━━━━━\n` +
+                    `🏦 *${vaultName}*\n` +
+                    `📊 Utilization: *${utilizationRatePercent.toFixed(2)}%* ${status}\n` +
+                    `💹 Supply APY: *${supplyAPY.toFixed(2)}%*\n` +
+                    `💰 Total: ${totalAssets.toLocaleString()} USDC\n` +
+                    `✅ Available: ${availableLiquidity.toLocaleString()} USDC`;
+            }
+            
             await sendTelegramMessage(message);
-            console.log('[DAILY REPORT] Sent');
+            console.log('\n[DAILY REPORT] Sent');
             return;
         }
 
-        // Threshold alerts
-        if (utilizationRatePercent > 95) {
-            console.error(`\n[CRITICAL ALERT] Utilization Rate is above 95%!`);
-            const message = `🚨 *MORPHO CRITICAL ALERT*\n\n` +
-                `🏦 Vault: *${vaultName}*\n` +
-                `⏰ ${timestamp}\n` +
-                `📊 Utilization Rate: *${utilizationRatePercent.toFixed(2)}%*\n` +
-                `💹 Supply APY: *${supplyAPY.toFixed(2)}%*\n\n` +
-                `💰 Total Deposits: ${totalAssets.toLocaleString()} USDC\n` +
-                `✅ Available: ${availableLiquidity.toLocaleString()} USDC\n` +
-                `📈 Deployed: ${deployedAssets.toLocaleString()} USDC`;
-            await sendTelegramMessage(message);
-        } else if (utilizationRatePercent > 90) {
-            console.warn(`\n[WARNING] Utilization Rate is above 90%.`);
-            const message = `⚠️ *MORPHO WARNING ALERT*\n\n` +
-                `🏦 Vault: *${vaultName}*\n` +
-                `⏰ ${timestamp}\n` +
-                `📊 Utilization Rate: *${utilizationRatePercent.toFixed(2)}%*\n` +
-                `💹 Supply APY: *${supplyAPY.toFixed(2)}%*\n\n` +
-                `💰 Total Deposits: ${totalAssets.toLocaleString()} USDC\n` +
-                `✅ Available: ${availableLiquidity.toLocaleString()} USDC\n` +
-                `📈 Deployed: ${deployedAssets.toLocaleString()} USDC`;
-            await sendTelegramMessage(message);
-        } else {
-            console.log(`\nStatus: Normal (Utilization < 90%)`);
+        // Threshold alerts for each vault
+        for (const data of vaultsData) {
+            const { vaultName, totalAssets, availableLiquidity, deployedAssets, utilizationRatePercent, supplyAPY } = data;
+            
+            if (utilizationRatePercent > 95) {
+                console.error(`\n[CRITICAL ALERT] ${vaultName} Utilization Rate is above 95%!`);
+                const message = `🚨 *MORPHO CRITICAL ALERT*\n\n` +
+                    `🏦 Vault: *${vaultName}*\n` +
+                    `⏰ ${timestamp}\n` +
+                    `📊 Utilization Rate: *${utilizationRatePercent.toFixed(2)}%*\n` +
+                    `💹 Supply APY: *${supplyAPY.toFixed(2)}%*\n\n` +
+                    `💰 Total Deposits: ${totalAssets.toLocaleString()} USDC\n` +
+                    `✅ Available: ${availableLiquidity.toLocaleString()} USDC\n` +
+                    `📈 Deployed: ${deployedAssets.toLocaleString()} USDC`;
+                await sendTelegramMessage(message);
+            } else if (utilizationRatePercent > 90) {
+                console.warn(`\n[WARNING] ${vaultName} Utilization Rate is above 90%.`);
+                const message = `⚠️ *MORPHO WARNING ALERT*\n\n` +
+                    `🏦 Vault: *${vaultName}*\n` +
+                    `⏰ ${timestamp}\n` +
+                    `📊 Utilization Rate: *${utilizationRatePercent.toFixed(2)}%*\n` +
+                    `💹 Supply APY: *${supplyAPY.toFixed(2)}%*\n\n` +
+                    `💰 Total Deposits: ${totalAssets.toLocaleString()} USDC\n` +
+                    `✅ Available: ${availableLiquidity.toLocaleString()} USDC\n` +
+                    `📈 Deployed: ${deployedAssets.toLocaleString()} USDC`;
+                await sendTelegramMessage(message);
+            } else {
+                console.log(`Status: ${vaultName} Normal (Utilization < 90%)`);
+            }
         }
     } catch (error) {
         console.error("Error fetching data:", error);
@@ -172,7 +207,7 @@ async function main(isDailyReport = false) {
 
 // Schedule daily report at 9am (Asia/Shanghai)
 function scheduleDailyReport() {
-    const checkInterval = 60000; // Check every minute
+    const checkInterval = 60000;
     setInterval(() => {
         const now = new Date();
         const shanghaiTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
