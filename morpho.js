@@ -6,6 +6,7 @@ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const MORPHO_API_URL = 'https://api.morpho.org/graphql';
 const DAILY_REPORT_HOUR = 9;
+const lastAlertTimes = {};
 
 // Morpho Vaults on Base chain
 const VAULTS = [
@@ -85,8 +86,8 @@ async function fetchVaultData(vaultAddress) {
 
     const vaultName = vault.name;
     const totalAssets = parseFloat(vault.state.totalAssets) / 1e6;
-    const supplyAPY = vault.state.netApy ? parseFloat(vault.state.netApy) * 100 : 
-                      vault.state.apy ? parseFloat(vault.state.apy) * 100 : 0;
+    const supplyAPY = vault.state.netApy ? parseFloat(vault.state.netApy) * 100 :
+        vault.state.apy ? parseFloat(vault.state.apy) * 100 : 0;
 
     let availableLiquidity = 0;
     if (vault.state.allocation && Array.isArray(vault.state.allocation)) {
@@ -152,11 +153,11 @@ async function main(isDailyReport = false) {
         // Daily report - send combined message for all vaults
         if (isDailyReport) {
             let message = `📋 *MORPHO Vaults 日报*\n⏰ ${timestamp}\n`;
-            
+
             for (const data of vaultsData) {
                 const { vaultName, totalAssets, availableLiquidity, utilizationRatePercent, supplyAPY } = data;
                 const status = utilizationRatePercent > 95 ? '🚨' :
-                              utilizationRatePercent > 90 ? '⚠️' : '✅';
+                    utilizationRatePercent > 90 ? '⚠️' : '✅';
                 message += `\n━━━━━━━━━━━━━━━━\n` +
                     `🏦 *${vaultName}*\n` +
                     `📊 Utilization: *${utilizationRatePercent.toFixed(2)}%* ${status}\n` +
@@ -164,38 +165,56 @@ async function main(isDailyReport = false) {
                     `💰 Total: ${totalAssets.toLocaleString()} USDC\n` +
                     `✅ Available: ${availableLiquidity.toLocaleString()} USDC`;
             }
-            
+
             await sendTelegramMessage(message);
             console.log('\n[DAILY REPORT] Sent');
             return;
         }
 
         // Threshold alerts for each vault
+        const now = Date.now();
+        const COOLDOWN_PERIOD = 3600000; // 1 hour in milliseconds
+
         for (const data of vaultsData) {
             const { vaultName, totalAssets, availableLiquidity, deployedAssets, utilizationRatePercent, supplyAPY } = data;
-            
+
+            // Initialize last alert time for this vault if not exists
+            if (!lastAlertTimes[vaultName]) {
+                lastAlertTimes[vaultName] = 0;
+            }
+
             if (utilizationRatePercent > 95) {
-                console.error(`\n[CRITICAL ALERT] ${vaultName} Utilization Rate is above 95%!`);
-                const message = `🚨 *MORPHO CRITICAL ALERT*\n\n` +
-                    `🏦 Vault: *${vaultName}*\n` +
-                    `⏰ ${timestamp}\n` +
-                    `📊 Utilization Rate: *${utilizationRatePercent.toFixed(2)}%*\n` +
-                    `💹 Supply APY: *${supplyAPY.toFixed(2)}%*\n\n` +
-                    `💰 Total Deposits: ${totalAssets.toLocaleString()} USDC\n` +
-                    `✅ Available: ${availableLiquidity.toLocaleString()} USDC\n` +
-                    `📈 Deployed: ${deployedAssets.toLocaleString()} USDC`;
-                await sendTelegramMessage(message);
+                if (now - lastAlertTimes[vaultName] >= COOLDOWN_PERIOD) {
+                    console.error(`\n[CRITICAL ALERT] ${vaultName} Utilization Rate is above 95%!`);
+                    const message = `🚨 *MORPHO CRITICAL ALERT*\n\n` +
+                        `🏦 Vault: *${vaultName}*\n` +
+                        `⏰ ${timestamp}\n` +
+                        `📊 Utilization Rate: *${utilizationRatePercent.toFixed(2)}%*\n` +
+                        `💹 Supply APY: *${supplyAPY.toFixed(2)}%*\n\n` +
+                        `💰 Total Deposits: ${totalAssets.toLocaleString()} USDC\n` +
+                        `✅ Available: ${availableLiquidity.toLocaleString()} USDC\n` +
+                        `📈 Deployed: ${deployedAssets.toLocaleString()} USDC`;
+                    await sendTelegramMessage(message);
+                    lastAlertTimes[vaultName] = now;
+                } else {
+                    console.log(`\n[CRITICAL ALERT] ${vaultName} Utilization > 95% but inside cooldown period.`);
+                }
             } else if (utilizationRatePercent > 90) {
-                console.warn(`\n[WARNING] ${vaultName} Utilization Rate is above 90%.`);
-                const message = `⚠️ *MORPHO WARNING ALERT*\n\n` +
-                    `🏦 Vault: *${vaultName}*\n` +
-                    `⏰ ${timestamp}\n` +
-                    `📊 Utilization Rate: *${utilizationRatePercent.toFixed(2)}%*\n` +
-                    `💹 Supply APY: *${supplyAPY.toFixed(2)}%*\n\n` +
-                    `💰 Total Deposits: ${totalAssets.toLocaleString()} USDC\n` +
-                    `✅ Available: ${availableLiquidity.toLocaleString()} USDC\n` +
-                    `📈 Deployed: ${deployedAssets.toLocaleString()} USDC`;
-                await sendTelegramMessage(message);
+                if (now - lastAlertTimes[vaultName] >= COOLDOWN_PERIOD) {
+                    console.warn(`\n[WARNING] ${vaultName} Utilization Rate is above 90%.`);
+                    const message = `⚠️ *MORPHO WARNING ALERT*\n\n` +
+                        `🏦 Vault: *${vaultName}*\n` +
+                        `⏰ ${timestamp}\n` +
+                        `📊 Utilization Rate: *${utilizationRatePercent.toFixed(2)}%*\n` +
+                        `💹 Supply APY: *${supplyAPY.toFixed(2)}%*\n\n` +
+                        `💰 Total Deposits: ${totalAssets.toLocaleString()} USDC\n` +
+                        `✅ Available: ${availableLiquidity.toLocaleString()} USDC\n` +
+                        `📈 Deployed: ${deployedAssets.toLocaleString()} USDC`;
+                    await sendTelegramMessage(message);
+                    lastAlertTimes[vaultName] = now;
+                } else {
+                    console.log(`\n[WARNING] ${vaultName} Utilization > 90% but inside cooldown period.`);
+                }
             } else {
                 console.log(`Status: ${vaultName} Normal (Utilization < 90%)`);
             }

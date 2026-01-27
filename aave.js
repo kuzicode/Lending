@@ -13,6 +13,7 @@ const DAILY_REPORT_HOUR = 9;
 // Constants for APY calculation
 const RAY = 10n ** 27n; // AAVE uses 27 decimals for rates
 const SECONDS_PER_YEAR = 31536000;
+let lastAlertTime = 0;
 
 // Initialize Telegram Bot
 let bot = null;
@@ -63,7 +64,7 @@ async function fetchPoolData() {
     const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, provider);
 
     const reserveData = await pool.getReserveData(USDC_ADDRESS);
-    
+
     // Extract Supply APY from reserveData
     const supplyAPY = rayRateToAPY(reserveData.currentLiquidityRate);
 
@@ -124,7 +125,7 @@ async function main(isDailyReport = false) {
         // Daily report at 9am
         if (isDailyReport) {
             const status = utilizationRatePercent > 95 ? '🚨 CRITICAL' :
-                          utilizationRatePercent > 90 ? '⚠️ WARNING' : '✅ Normal';
+                utilizationRatePercent > 90 ? '⚠️ WARNING' : '✅ Normal';
             const message = `📋 *AAVE USDC 日报*\n\n` +
                 `⏰ ${timestamp}\n` +
                 `📊 Utilization: *${utilizationRatePercent.toFixed(2)}%*\n` +
@@ -139,28 +140,48 @@ async function main(isDailyReport = false) {
         }
 
         // Threshold alerts
+        const now = Date.now();
+        const COOLDOWN_PERIOD = 3600000; // 1 hour in milliseconds
+
         if (utilizationRatePercent > 95) {
-            console.error(`\n[CRITICAL ALERT] Utilization Rate is above 95%!`);
-            const message = `🚨 *AAVE USDC CRITICAL ALERT*\n\n` +
-                `⏰ ${timestamp}\n` +
-                `📊 Utilization Rate: *${utilizationRatePercent.toFixed(2)}%*\n` +
-                `💹 Supply APY: *${supplyAPY.toFixed(2)}%*\n\n` +
-                `💰 Total Liquidity: ${totalLiquidityFloat.toLocaleString()} USDC\n` +
-                `✅ Available: ${availableLiquidityFloat.toLocaleString()} USDC\n` +
-                `📈 Total Debt: ${totalDebtFloat.toLocaleString()} USDC`;
-            await sendTelegramMessage(message);
+            if (now - lastAlertTime >= COOLDOWN_PERIOD) {
+                console.error(`\n[CRITICAL ALERT] Utilization Rate is above 95%!`);
+                const message = `🚨 *AAVE USDC CRITICAL ALERT*\n\n` +
+                    `⏰ ${timestamp}\n` +
+                    `📊 Utilization Rate: *${utilizationRatePercent.toFixed(2)}%*\n` +
+                    `💹 Supply APY: *${supplyAPY.toFixed(2)}%*\n\n` +
+                    `💰 Total Liquidity: ${totalLiquidityFloat.toLocaleString()} USDC\n` +
+                    `✅ Available: ${availableLiquidityFloat.toLocaleString()} USDC\n` +
+                    `📈 Total Debt: ${totalDebtFloat.toLocaleString()} USDC`;
+                await sendTelegramMessage(message);
+                lastAlertTime = now;
+            } else {
+                console.log(`\n[CRITICAL ALERT] Utilization > 95% but inside cooldown period.`);
+            }
         } else if (utilizationRatePercent > 90) {
-            console.warn(`\n[WARNING] Utilization Rate is above 90%.`);
-            const message = `⚠️ *AAVE USDC WARNING ALERT*\n\n` +
-                `⏰ ${timestamp}\n` +
-                `📊 Utilization Rate: *${utilizationRatePercent.toFixed(2)}%*\n` +
-                `💹 Supply APY: *${supplyAPY.toFixed(2)}%*\n\n` +
-                `💰 Total Liquidity: ${totalLiquidityFloat.toLocaleString()} USDC\n` +
-                `✅ Available: ${availableLiquidityFloat.toLocaleString()} USDC\n` +
-                `📈 Total Debt: ${totalDebtFloat.toLocaleString()} USDC`;
-            await sendTelegramMessage(message);
+            if (now - lastAlertTime >= COOLDOWN_PERIOD) {
+                console.warn(`\n[WARNING] Utilization Rate is above 90%.`);
+                const message = `⚠️ *AAVE USDC WARNING ALERT*\n\n` +
+                    `⏰ ${timestamp}\n` +
+                    `📊 Utilization Rate: *${utilizationRatePercent.toFixed(2)}%*\n` +
+                    `💹 Supply APY: *${supplyAPY.toFixed(2)}%*\n\n` +
+                    `💰 Total Liquidity: ${totalLiquidityFloat.toLocaleString()} USDC\n` +
+                    `✅ Available: ${availableLiquidityFloat.toLocaleString()} USDC\n` +
+                    `📈 Total Debt: ${totalDebtFloat.toLocaleString()} USDC`;
+                await sendTelegramMessage(message);
+                lastAlertTime = now;
+            } else {
+                console.log(`\n[WARNING] Utilization > 90% but inside cooldown period.`);
+            }
         } else {
             console.log(`\nStatus: Normal (Utilization < 90%)`);
+            // Optional: Reset cooldown if back to normal? 
+            // The user didn't ask for this, but "remind once an hour" usually implies "while condition persists".
+            // If it dips and comes back, it might be annoying to alert immediately again if it's within the hour.
+            // But usually "once an hour" means "don't send more than one message per hour".
+            // I will strictly enforce 1 hour between alerts regardless of dipping.
+            // However, usually if it clears, the "state" is clear.
+            // I'll keep it simple: if (>90), check time.
         }
     } catch (error) {
         console.error("Error fetching data:", error);
