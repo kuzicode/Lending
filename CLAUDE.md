@@ -16,14 +16,14 @@ DeFi lending pool utilization monitor that polls on-chain/API data and sends Tel
 npm install              # install dependencies
 node aave.js             # run AAVE monitor standalone
 node morpho.js           # run Morpho monitor standalone
-bash run.sh              # start monitors via pm2 (requires pm2 globally installed)
+bash start.sh            # start monitors via pm2 (requires pm2 globally installed)
+bash stop.sh             # stop all monitors
 ```
 
-pm2 management (after `run.sh`):
+pm2 management:
 ```bash
 pm2 logs morpho-monitor  # tail logs
 pm2 list                 # status
-pm2 stop all             # stop
 pm2 restart all          # restart
 ```
 
