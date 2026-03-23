@@ -6,6 +6,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const RPC_URL = process.env.RPC_URL;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const TELEGRAM_TOPIC_ID = process.env.TELEGRAM_TOPIC_ID;
 const POOL_ADDRESS = '0x87870bca3f3fd6335c3f4ce8392d69350b4fa4e2';
 const USDC_ADDRESS = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
 const DAILY_REPORT_HOUR = 9;
@@ -46,7 +47,9 @@ function rayRateToAPY(rayRate) {
 async function sendTelegramMessage(message) {
     if (!bot) return;
     try {
-        await bot.sendMessage(TELEGRAM_CHAT_ID, message, { parse_mode: 'Markdown' });
+        const opts = { parse_mode: 'Markdown' };
+        if (TELEGRAM_TOPIC_ID) opts.message_thread_id = Number(TELEGRAM_TOPIC_ID);
+        await bot.sendMessage(TELEGRAM_CHAT_ID, message, opts);
         console.log('Telegram message sent');
     } catch (error) {
         console.error('Failed to send Telegram message:', error.message);

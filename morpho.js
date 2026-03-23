@@ -4,6 +4,7 @@ const TelegramBot = require('node-telegram-bot-api');
 // Configuration
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const TELEGRAM_TOPIC_ID = process.env.TELEGRAM_TOPIC_ID;
 const MORPHO_API_URL = 'https://api.morpho.org/graphql';
 const DAILY_REPORT_HOUR = 9;
 const lastAlertTimes = {};
@@ -33,7 +34,9 @@ if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID) {
 async function sendTelegramMessage(message) {
     if (!bot) return;
     try {
-        await bot.sendMessage(TELEGRAM_CHAT_ID, message, { parse_mode: 'Markdown' });
+        const opts = { parse_mode: 'Markdown' };
+        if (TELEGRAM_TOPIC_ID) opts.message_thread_id = Number(TELEGRAM_TOPIC_ID);
+        await bot.sendMessage(TELEGRAM_CHAT_ID, message, opts);
         console.log('Telegram message sent');
     } catch (error) {
         console.error('Failed to send Telegram message:', error.message);
