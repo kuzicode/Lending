@@ -1,4 +1,6 @@
 require('dotenv').config();
+const dns = require('dns');
+dns.setDefaultResultOrder('ipv4first');
 const { ethers } = require('ethers');
 const TelegramBot = require('node-telegram-bot-api');
 
