@@ -1,7 +1,7 @@
 require('dotenv').config();
 const dns = require('dns');
 dns.setDefaultResultOrder('ipv4first');
-const TelegramBot = require('node-telegram-bot-api');
+const { execFile } = require('child_process');
 
 // Configuration
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -23,25 +23,37 @@ const VAULTS = [
     }
 ];
 
-// Initialize Telegram Bot
-let bot = null;
 if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID) {
-    bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false });
-    console.log('Telegram notifications enabled');
+    console.log('Telegram notifications enabled (via curl)');
 } else {
     console.log('Telegram notifications disabled (no credentials provided)');
 }
 
-// Send Telegram message
-async function sendTelegramMessage(message) {
-    if (!bot) return;
-    try {
-        const opts = { parse_mode: 'Markdown' };
-        if (TELEGRAM_TOPIC_ID) opts.message_thread_id = Number(TELEGRAM_TOPIC_ID);
-        await bot.sendMessage(TELEGRAM_CHAT_ID, message, opts);
-        console.log('Telegram message sent');
-    } catch (error) {
-        console.error('Failed to send Telegram message:', error.message);
+// Send Telegram message via curl with retry
+async function sendTelegramMessage(message, retries = 3) {
+    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+    const body = { chat_id: TELEGRAM_CHAT_ID, text: message, parse_mode: 'Markdown' };
+    if (TELEGRAM_TOPIC_ID) body.message_thread_id = Number(TELEGRAM_TOPIC_ID);
+
+    for (let i = 0; i < retries; i++) {
+        try {
+            await new Promise((resolve, reject) => {
+                execFile('curl', [
+                    '-4', '-s', '-f', '--connect-timeout', '10', '-X', 'POST',
+                    url, '-H', 'Content-Type: application/json',
+                    '-d', JSON.stringify(body)
+                ], (error, stdout, stderr) => {
+                    if (error) reject(new Error(stderr || error.message));
+                    else resolve(stdout);
+                });
+            });
+            console.log('Telegram message sent');
+            return;
+        } catch (error) {
+            console.error(`Failed to send Telegram message (attempt ${i + 1}/${retries}):`, error.message);
+            if (i < retries - 1) await new Promise(r => setTimeout(r, 5000));
+        }
     }
 }
 
